@@ -7,6 +7,7 @@
 #include "mm.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
 
 /* 
  * init_pte - Initialize PTE entry
@@ -86,20 +87,41 @@ int vmap_page_range(struct pcb_t *caller, // process call
               struct vm_rg_struct *ret_rg)// return mapped region, the real mapped fp
 {                                         // no guarantee all given pages are mapped
   //uint32_t * pte = malloc(sizeof(uint32_t));
-  struct framephy_struct *fpit = malloc(sizeof(struct framephy_struct));
+  //struct framephy_struct *fpit = malloc(sizeof(struct framephy_struct));
   //int  fpn;
   int pgit = 0;
   int pgn = PAGING_PGN(addr);
 
   ret_rg->rg_end = ret_rg->rg_start = addr; // at least the very first space is usable
 
-  fpit->fp_next = frames;
-
+  //fpit->fp_next = frames;
+  struct framephy_struct *fpit=frames;
   /* TODO map range of frame to address space 
    *      [addr to addr + pgnum*PAGING_PAGESZ
    *      in page table caller->mm->pgd[]
    */
+  while (pgit < pgnum && fpit != NULL) {
+        int pgd_index = PAGING_PGN(addr);
+        
+        if (pgd_index >= PAGING_MAX_PGN) {
+            return -ERANGE; // Address out of range
+        }
 
+        // Assuming that the pgd entry is already allocated in init_mm
+        // Initialize the PTE with the frame page number and mark it as present
+        init_pte(&caller->mm->pgd[pgd_index], 
+                 1,            // present
+                 fpit->fpn,    // frame page number maybe PAGE_FPN(addr);
+                 0,            // not dirty
+                 0,            // no swap
+                 0,            // swap type (if relevant)
+                 0);           // swap offset (if relevant)
+
+        ret_rg->rg_end = addr + PAGING_PAGESZ;
+        addr += PAGING_PAGESZ;
+        fpit = fpit->fp_next;
+        pgit++;
+    }
    /* Tracking for later page replacement activities (if needed)
     * Enqueue new usage page */
    enlist_pgn_node(&caller->mm->fifo_pgn, pgn+pgit);
@@ -114,18 +136,51 @@ int vmap_page_range(struct pcb_t *caller, // process call
  * @req_pgnum : request page num
  * @frm_lst   : frame list
  */
+void free_frame_list(struct framephy_struct *head, struct memphy_struct* caller) {
+    struct framephy_struct *temp;
 
+    while (head != NULL) {
+        temp = head;
+        head = head->fp_next;
+        MEMPHY_put_freefp(caller, temp->fpn);
+        free(temp);
+    }
+}
 int alloc_pages_range(struct pcb_t *caller, int req_pgnum, struct framephy_struct** frm_lst)
 {
   int pgit, fpn;
   //struct framephy_struct *newfp_str;
-
+  int flm_allocated=0;
+  int allocated_frames = 0;
+  struct framephy_struct *curr = NULL;
   for(pgit = 0; pgit < req_pgnum; pgit++)
   {
     if(MEMPHY_get_freefp(caller->mram, &fpn) == 0)
    {
-     
+     // Successfully obtained a free frame
+      struct framephy_struct *new_frame = malloc(sizeof(struct framephy_struct));
+    if (!new_frame) {
+      // Memory allocation failed, clean up and return error
+      free_frame_list(caller->mram, *frm_lst); 
+      return -ENOMEM;
+    }
+
+    new_frame->fpn = fpn;
+    new_frame->owner=caller;
+    new_frame->fp_next = NULL;
+
+    if (flm_allocated==1) {
+      curr->fp_next = new_frame;
+      
+    } else {
+      frm_lst = new_frame;
+      flm_allocated=1;
+    }
+    curr=new_frame;
+    allocated_frames++;
    } else {  // ERROR CODE of obtaining somes but not enough frames
+      free_frame_list(caller->mram, *frm_lst);
+      return -3000; //fail
    } 
  }
 
