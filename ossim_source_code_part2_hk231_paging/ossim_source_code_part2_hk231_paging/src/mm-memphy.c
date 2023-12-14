@@ -139,6 +139,7 @@ int MEMPHY_format(struct memphy_struct *mp, int pagesz)
 
 int MEMPHY_get_freefp(struct memphy_struct *mp, int *retfpn)
 {
+   pthread_mutex_lock(&mem_lock);  
    struct framephy_struct *fp = mp->free_fp_list;
 
    if (fp == NULL)
@@ -151,7 +152,7 @@ int MEMPHY_get_freefp(struct memphy_struct *mp, int *retfpn)
     * No garbage collector acting then it not been released
     */
    free(fp);
-
+   pthread_mutex_unlock(&mem_lock);
    return 0;
 }
 
@@ -174,6 +175,7 @@ int MEMPHY_dump(struct memphy_struct * mp)
 
 int MEMPHY_put_freefp(struct memphy_struct *mp, int fpn)
 {
+    pthread_mutex_lock(&mem_lock); 
    struct framephy_struct *fp = mp->free_fp_list;
    struct framephy_struct *newnode = malloc(sizeof(struct framephy_struct));
 
@@ -181,7 +183,7 @@ int MEMPHY_put_freefp(struct memphy_struct *mp, int fpn)
    newnode->fpn = fpn;
    newnode->fp_next = fp;
    mp->free_fp_list = newnode;
-
+    pthread_mutex_lock(&mem_lock); 
    return 0;
 }
 
