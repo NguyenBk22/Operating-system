@@ -162,6 +162,7 @@ int MEMPHY_dump(struct memphy_struct * mp)
      */
     printf("Dumping Memory Content (up to %d bytes):\n", mp->maxsz);
     for (int i = 0; i < mp->maxsz; i++) {
+       if(mp->storage[i]==(char)0) break;
         printf("%04x ", mp->storage[i]);
         if ((i + 1) % 16 == 0) {
             printf("\n"); // Break line every 16 bytes for readability
